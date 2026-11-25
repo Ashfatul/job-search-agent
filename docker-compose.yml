@@ -1,0 +1,24 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    mem_limit: 700m
+
+  # Optional: enable this service on your VPS if you prefer self-hosting Next.js instead of Vercel Free
+  web:
+    profiles: ["full-vps"]
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    mem_limit: 512m

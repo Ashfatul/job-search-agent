@@ -1,0 +1,135 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  width: 360px;
+  margin: 0;
+  padding: 12px;
+  background: #0b0f17;
+  color: #f1f5f9;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.brand {
+  font-weight: 700;
+  font-size: 14px;
+  color: #60a5fa;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 11px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card {
+  background: #121826;
+  border: 1px solid #253047;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hidden {
+  display: none;
+}
+label {
+  color: #94a3b8;
+  font-size: 11px;
+}
+input,
+textarea {
+  width: 100%;
+  background: #0b0f17;
+  border: 1px solid #253047;
+  border-radius: 6px;
+  color: #f1f5f9;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.row {
+  display: flex;
+  gap: 6px;
+}
+button.primary {
+  flex: 1;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.secondary {
+  flex: 1;
+  background: #192235;
+  color: #e2e8f0;
+  border: 1px solid #253047;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-weight: 500;
+  cursor: pointer;
+}
+button.full {
+  width: 100%;
+}
+.banner {
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 11px;
+}
+.banner.info {
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
+}
+.banner.warn {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+}
+.banner.ok {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #6ee7b7;
+}
+.field-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.field-sub {
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.result-item {
+  background: #0b0f17;
+  border: 1px solid #253047;
+  border-radius: 6px;
+  padding: 6px;
+  font-size: 11px;
+}
+.msg {
+  font-size: 11px;
+  color: #93c5fd;
+}

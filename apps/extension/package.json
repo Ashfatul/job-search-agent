@@ -1,0 +1,8 @@
+{
+  "name": "@job-bot/extension",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.cpSync('src','dist',{recursive:true});console.log('Extension built to apps/extension/dist');\""
+  }
+}

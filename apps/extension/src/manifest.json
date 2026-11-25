@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "JobPilot AI — Job Tracker & Already-Applied Checker",
+  "version": "1.0.0",
+  "description": "Check if you already applied via Somewhat Search, save jobs to Supabase, and generate human-like apply emails.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "JobPilot AI"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

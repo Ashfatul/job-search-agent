@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>JobPilot AI</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">JobPilot AI</div>
+      <button id="toggleAuthBtn" class="link-btn">Settings</button>
+    </header>
+
+    <section id="authSection" class="card hidden">
+      <label>Web App URL</label>
+      <input id="webAppUrl" type="url" placeholder="http://localhost:3000" />
+      <label>Supabase URL</label>
+      <input id="supabaseUrl" type="url" placeholder="https://xxx.supabase.co" />
+      <label>Supabase Anon Key</label>
+      <input id="supabaseAnonKey" type="password" placeholder="eyJ..." />
+      <label>Email</label>
+      <input id="loginEmail" type="email" placeholder="you@gmail.com" />
+      <label>Password</label>
+      <input id="loginPassword" type="password" placeholder="••••••••" />
+      <div class="row">
+        <button id="signInBtn" class="primary">Sign In & Save</button>
+        <button id="signOutBtn" class="secondary">Sign Out</button>
+      </div>
+      <div id="authMsg" class="msg"></div>
+    </section>
+
+    <section id="mainSection" class="stack">
+      <div id="statusBanner" class="banner info">Checking current tab...</div>
+
+      <div class="card">
+        <div class="field-title" id="jobTitle">Loading tab...</div>
+        <div class="field-sub" id="jobCompany"></div>
+        <div class="row">
+          <button id="saveBtn" class="secondary">Save Job</button>
+          <button id="appliedBtn" class="primary">Mark Applied</button>
+        </div>
+        <button id="draftBtn" class="secondary full">Draft Human Apply Email</button>
+      </div>
+
+      <div id="draftBox" class="card hidden">
+        <label>Drafted Subject</label>
+        <input id="draftSubject" type="text" readonly />
+        <label>Drafted Body</label>
+        <textarea id="draftBody" rows="6" readonly></textarea>
+        <button id="copyDraftBtn" class="primary full">Copy Email</button>
+      </div>
+
+      <div class="card">
+        <label>Quick Somewhat Search</label>
+        <div class="row">
+          <input id="searchQuery" type="text" placeholder="company or title..." />
+          <button id="searchBtn" class="secondary">Check</button>
+        </div>
+        <div id="searchResults" class="results"></div>
+      </div>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

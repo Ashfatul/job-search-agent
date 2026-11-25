@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+
+# Environment & Secrets (keep .env.example tracked)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Build & TypeScript outputs
+dist/
+**/dist/
+build/
+**/build/
+.next/
+**/.next/
+out/
+**/out/
+*.tsbuildinfo
+**/*.tsbuildinfo
+apps/web/next-env.d.ts
+
+# Cache & Tooling
+.turbo/
+.cache/
+.vercel/
+.eslintcache
+supabase/.temp/
+supabase/.branches/
+
+# Testing & Playwright
+coverage/
+**/coverage/
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Chrome Extension packaging keys/bundles
+apps/extension/*.zip
+apps/extension/*.crx
+apps/extension/*.pem
+
+# Logs & Runtime files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.pid
+*.seed
+*.pid.lock
+.pm2/
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
