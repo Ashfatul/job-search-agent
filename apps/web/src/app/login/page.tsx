@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Eye, EyeOff, Lock, Mail, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,37 +16,32 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-    setMessage(null);
-
     const supabase = createClient();
+
     try {
       if (mode === 'signup') {
-        const { error: signUpErr } = await supabase.auth.signUp({
+        const { error } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
         });
-        if (signUpErr) throw signUpErr;
-        setMessage('Account created! Check your email to confirm (or sign in if confirmation is disabled).');
+        if (error) throw error;
+        toast.success('Account created! Check your email to confirm or sign in.');
       } else {
-        const { error: signInErr } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (signInErr) throw signInErr;
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        toast.success('Welcome back!');
         router.push('/');
         router.refresh();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -48,100 +49,110 @@ export default function LoginPage() {
 
   async function handleMagicLink() {
     if (!email.trim()) {
-      setError('Enter your email address first.');
+      toast.error('Enter your email address first.');
       return;
     }
     setLoading(true);
-    setError(null);
     const supabase = createClient();
-    const { error: otpErr } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     });
     setLoading(false);
-    if (otpErr) setError(otpErr.message);
-    else setMessage('Magic login link sent to your email!');
+    if (error) toast.error(error.message);
+    else toast.success('Magic login link sent to your inbox!');
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--bg)]">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-7 shadow-2xl">
-        <div className="mb-6">
-          <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-blue-600/20 border border-blue-500/40 text-blue-400 font-bold mb-3">
-            JB
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-6">
+        <div className="flex flex-col items-center text-center gap-2">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-indigo-950/60">
+            <Sparkles className="w-5 h-5" />
           </div>
-          <h1 className="text-xl font-bold">JobPilot AI</h1>
-          <p className="text-xs text-[var(--muted)] mt-1">
-            Sign in to access your private job application agent & tracker.
+          <h1 className="text-2xl font-bold tracking-tight">JobPilot AI</h1>
+          <p className="text-xs text-zinc-400">
+            Autonomous job discovery & manual outreach workflow
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted)] mb-1">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-              placeholder="you@gmail.com"
-            />
-          </div>
+        <Card className="bg-zinc-950/90 border-zinc-800/90 shadow-2xl">
+          <CardHeader className="pb-4">
+            {allowSignup ? (
+              <Tabs value={mode} onValueChange={(v) => setMode(v as 'signin' | 'signup')}>
+                <TabsList className="w-full grid grid-cols-2">
+                  <TabsTrigger value="signin" className="justify-center">
+                    Sign In
+                  </TabsTrigger>
+                  <TabsTrigger value="signup" className="justify-center">
+                    Create Account
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            ) : (
+              <>
+                <CardTitle>Sign In</CardTitle>
+                <CardDescription>Private instance access</CardDescription>
+              </>
+            )}
+          </CardHeader>
 
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted)] mb-1">Password</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-              placeholder="••••••••"
-            />
-          </div>
+          <CardContent className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-3.5">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Email</label>
+                <div className="relative">
+                  <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                  <Input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@gmail.com"
+                    className="pl-9"
+                  />
+                </div>
+              </div>
 
-          {error && (
-            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
-              {message}
-            </div>
-          )}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Password</label>
+                <div className="relative">
+                  <Lock className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="pl-9 pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2.5 top-2.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 py-2.5 text-sm font-semibold text-white cursor-pointer"
-          >
-            {loading ? 'Working...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
-          </button>
-        </form>
+              <Button type="submit" disabled={loading} className="w-full h-10">
+                {loading ? 'Working...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+              </Button>
+            </form>
 
-        <div className="mt-4 flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={handleMagicLink}
-            disabled={loading}
-            className="w-full rounded-lg border border-[var(--border)] hover:bg-[var(--surface-elevated)] py-2 text-xs font-medium text-[var(--muted)] cursor-pointer"
-          >
-            Send One-Time Magic Link
-          </button>
-
-          {allowSignup && (
-            <button
+            <Button
               type="button"
-              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-              className="text-xs text-blue-400 hover:underline mt-2 cursor-pointer"
+              variant="outline"
+              onClick={handleMagicLink}
+              disabled={loading}
+              className="w-full"
             >
-              {mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
-            </button>
-          )}
-        </div>
+              Send One-Time Magic Link
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

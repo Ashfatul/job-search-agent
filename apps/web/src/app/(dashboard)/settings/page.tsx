@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
-  CheckCircle2,
   Eye,
   EyeOff,
   Globe,
@@ -15,13 +14,20 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   SOURCE_CATALOG,
   type SourceMethod,
   type SourceType,
 } from '@job-bot/shared';
 import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 import { CustomCheckbox, CustomSwitch } from '@/components/CustomCheckbox';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface JobSourceRow {
   id: string;
@@ -32,8 +38,6 @@ interface JobSourceRow {
   last_run_at: string | null;
 }
 
-type SettingsTab = 'sources' | 'rules' | 'notifications' | 'security';
-
 const CRON_PRESETS = [
   { label: 'Every 4 hours (6x/day)', value: '0 */4 * * *' },
   { label: 'Every 6 hours (4x/day)', value: '0 */6 * * *' },
@@ -42,9 +46,6 @@ const CRON_PRESETS = [
 ];
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('sources');
-
-  // Profile & notifications
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState('user');
   const [fullName, setFullName] = useState('');
@@ -53,7 +54,6 @@ export default function SettingsPage() {
   const [telegramEnabled, setTelegramEnabled] = useState(true);
   const [summaryEmailEnabled, setSummaryEmailEnabled] = useState(true);
 
-  // Discovery & matching rules
   const [cronSchedule, setCronSchedule] = useState('0 */6 * * *');
   const [targetRoles, setTargetRoles] = useState('Software Engineer, Full Stack Developer');
   const [targetLocations, setTargetLocations] = useState('Remote');
@@ -62,7 +62,6 @@ export default function SettingsPage() {
   const [remoteOnly, setRemoteOnly] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
 
-  // Sources
   const [sources, setSources] = useState<JobSourceRow[]>([]);
   const [methodFilter, setMethodFilter] = useState<'all' | SourceMethod>('all');
   const [newSourceMethod, setNewSourceMethod] = useState<SourceMethod>('api');
@@ -70,13 +69,10 @@ export default function SettingsPage() {
   const [newSourceName, setNewSourceName] = useState('');
   const [newSourceParam, setNewSourceParam] = useState('');
 
-  // Security / Password change
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
   const [busy, setBusy] = useState(false);
-  const [banner, setBanner] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   async function load() {
     const res = await fetch('/api/settings', { cache: 'no-store' });
@@ -137,7 +133,6 @@ export default function SettingsPage() {
   async function saveAllSettings(e?: React.FormEvent) {
     e?.preventDefault();
     setBusy(true);
-    setBanner(null);
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT',
@@ -168,10 +163,11 @@ export default function SettingsPage() {
           },
         }),
       });
-      if (!res.ok) throw new Error('Failed to save settings');
-      setBanner({ type: 'ok', text: 'All settings saved cleanly.' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      toast.success('Settings saved!');
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -180,11 +176,10 @@ export default function SettingsPage() {
   async function addSource(e: React.FormEvent) {
     e.preventDefault();
     if (!newSourceName.trim()) {
-      setBanner({ type: 'err', text: 'Please enter a source name.' });
+      toast.error('Please enter a source name.');
       return;
     }
     setBusy(true);
-    setBanner(null);
     const paramVal = newSourceParam.trim();
     const config: Record<string, unknown> = {};
     if (paramVal) {
@@ -192,7 +187,6 @@ export default function SettingsPage() {
       else if (selectedCatalogMeta?.requiresParam === 'boardToken') config.boardToken = paramVal;
       else config.query = paramVal;
     }
-
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT',
@@ -209,10 +203,10 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to add source');
       setNewSourceName('');
       setNewSourceParam('');
-      setBanner({ type: 'ok', text: 'Added new job source.' });
+      toast.success('Added new job source!');
       await load();
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -220,7 +214,6 @@ export default function SettingsPage() {
 
   async function quickAddFromCatalog(type: SourceType, label: string) {
     setBusy(true);
-    setBanner(null);
     const meta = catalogByType.get(type);
     const defaultCfg =
       type === 'weworkremotely'
@@ -240,15 +233,12 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed to enable ${label}`);
-      setBanner({
-        type: 'ok',
-        text: meta?.requiresParam
-          ? `Added ${label}. Configure its ${meta.paramLabel} if needed.`
-          : `Enabled ${label}.`,
-      });
+      toast.success(
+        meta?.requiresParam ? `Added ${label}` : `Enabled ${label}`,
+      );
       await load();
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -262,7 +252,7 @@ export default function SettingsPage() {
     });
     const data = await res.json();
     if (!res.ok) {
-      setBanner({ type: 'err', text: data.error || 'Failed to toggle source' });
+      toast.error(data.error || 'Failed to toggle source');
       return;
     }
     await load();
@@ -278,13 +268,10 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update sources');
-      setBanner({
-        type: 'ok',
-        text: enabled ? 'All configured sources enabled.' : 'All configured sources paused.',
-      });
+      toast.success(enabled ? 'All sources enabled' : 'All sources paused');
       await load();
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -298,15 +285,15 @@ export default function SettingsPage() {
     });
     const data = await res.json();
     if (!res.ok) {
-      setBanner({ type: 'err', text: data.error || 'Failed to delete source' });
+      toast.error(data.error || 'Failed to delete source');
       return;
     }
+    toast.success('Source removed');
     await load();
   }
 
   async function seedRecommendedSources() {
     setBusy(true);
-    setBanner(null);
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT',
@@ -315,10 +302,10 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load recommended sources');
-      setBanner({ type: 'ok', text: 'Loaded all 10 recommended free remote & regional sources!' });
+      toast.success('Loaded all 10 recommended free remote & regional sources!');
       await load();
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -326,7 +313,6 @@ export default function SettingsPage() {
 
   async function sendTestTelegram() {
     setBusy(true);
-    setBanner(null);
     try {
       const res = await fetch('/api/settings/test-telegram', {
         method: 'POST',
@@ -335,9 +321,9 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Telegram test failed');
-      setBanner({ type: 'ok', text: 'Test Telegram message sent! Check your Telegram app.' });
+      toast.success('Test Telegram message sent!');
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -345,13 +331,12 @@ export default function SettingsPage() {
 
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
-    setBanner(null);
     if (newPassword.length < 6) {
-      setBanner({ type: 'err', text: 'New password must be at least 6 characters.' });
+      toast.error('New password must be at least 6 characters.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setBanner({ type: 'err', text: 'Passwords do not match.' });
+      toast.error('Passwords do not match.');
       return;
     }
 
@@ -362,289 +347,221 @@ export default function SettingsPage() {
       if (error) throw error;
       setNewPassword('');
       setConfirmPassword('');
-      setBanner({ type: 'ok', text: 'Password updated successfully!' });
+      toast.success('Password updated successfully!');
     } catch (err) {
-      setBanner({ type: 'err', text: err instanceof Error ? err.message : String(err) });
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
   }
 
   const methodBadge = (method: SourceMethod) => {
-    if (method === 'api') {
-      return (
-        <span className="px-2 py-0.5 rounded-md bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[10px] font-semibold uppercase">
-          API
-        </span>
-      );
-    }
-    if (method === 'scraping') {
-      return (
-        <span className="px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-semibold uppercase">
-          Scraping
-        </span>
-      );
-    }
-    return (
-      <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-semibold uppercase">
-        RSS
-      </span>
-    );
+    if (method === 'api') return <Badge variant="indigo">API</Badge>;
+    if (method === 'scraping') return <Badge variant="purple">Scraping</Badge>;
+    return <Badge variant="amber">RSS</Badge>;
   };
 
   return (
     <div className="space-y-6 max-w-6xl">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold">Control Settings & Source Manager</h1>
-          <p className="text-xs text-[var(--muted)] mt-1">
-            Manage all API & scraping sources, matching thresholds, notifications, and account security.
+          <h1 className="text-xl font-bold tracking-tight">Settings & Source Manager</h1>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Configure API & scraping sources, matching thresholds, Telegram/Email alerts, and account security.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-medium">
-            {sources.filter((s) => s.enabled).length} / {sources.length || 10} Active Sources
-          </span>
-        </div>
+        <Badge variant="emerald" className="self-start">
+          {sources.filter((s) => s.enabled).length} / {sources.length || 10} Active Sources
+        </Badge>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex flex-wrap gap-2 border-b border-[var(--border)] pb-3">
-        {(
-          [
-            { id: 'sources', label: 'Job Sources (API & Scraping)', icon: Globe },
-            { id: 'rules', label: 'Discovery & Matching Rules', icon: Sliders },
-            { id: 'notifications', label: 'Telegram & Email Alerts', icon: Bell },
-            { id: 'security', label: 'Account & Password', icon: KeyRound },
-          ] as const
-        ).map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-                active
-                  ? 'border-blue-500/50 bg-blue-500/15 text-blue-300 shadow-sm'
-                  : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--text)]'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs defaultValue="sources">
+        <TabsList>
+          <TabsTrigger value="sources">
+            <Globe className="w-3.5 h-3.5" /> Job Sources
+          </TabsTrigger>
+          <TabsTrigger value="rules">
+            <Sliders className="w-3.5 h-3.5" /> Discovery & Rules
+          </TabsTrigger>
+          <TabsTrigger value="notifications">
+            <Bell className="w-3.5 h-3.5" /> Telegram & Email
+          </TabsTrigger>
+          <TabsTrigger value="security">
+            <KeyRound className="w-3.5 h-3.5" /> Account & Password
+          </TabsTrigger>
+        </TabsList>
 
-      {banner && (
-        <div
-          className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs ${
-            banner.type === 'ok'
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-              : 'border-red-500/40 bg-red-500/10 text-red-200'
-          }`}
-        >
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          {banner.text}
-        </div>
-      )}
-
-      {/* TAB 1: JOB SOURCES */}
-      {activeTab === 'sources' && (
-        <div className="space-y-6">
-          {/* Add New Source Card (API / Scraping / RSS) */}
-          <form
-            onSubmit={addSource}
-            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        {/* TAB 1: SOURCES */}
+        <TabsContent value="sources" className="space-y-5">
+          <Card>
+            <CardHeader className="flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-blue-400" /> Add Job Source
-                </h2>
-                <p className="text-[11px] text-[var(--muted)]">
-                  Choose whether the source uses a structured API, web scraping, or an RSS feed.
-                </p>
+                <CardTitle className="flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-indigo-400" /> Add Custom Job Source
+                </CardTitle>
+                <CardDescription>
+                  Select API, Web Scraping, or RSS feed provider.
+                </CardDescription>
               </div>
-              <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--bg)] p-0.5">
+              <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1">
                 {(['api', 'scraping', 'rss'] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
                     onClick={() => setNewSourceMethod(m)}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold uppercase cursor-pointer transition-colors ${
-                      newSourceMethod === m ? 'bg-blue-600 text-white' : 'text-[var(--muted)]'
-                    }`}
+                    className={cn(
+                      'px-3 py-1 rounded-lg text-xs font-semibold uppercase cursor-pointer transition-colors',
+                      newSourceMethod === m ? 'bg-indigo-600 text-white' : 'text-zinc-400',
+                    )}
                   >
                     {m}
                   </button>
                 ))}
               </div>
-            </div>
+            </CardHeader>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-              <div className="md:col-span-4">
-                <label className="block text-[11px] text-[var(--muted)] mb-1">Provider / Type</label>
-                <select
-                  value={newSourceType}
-                  onChange={(e) => setNewSourceType(e.target.value as SourceType)}
-                  className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-xs"
-                >
-                  {addableTypesForMethod.map((item) => (
-                    <option key={item.type} value={item.type}>
-                      {item.label} ({item.method.toUpperCase()})
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <CardContent>
+              <form onSubmit={addSource} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div className="md:col-span-4 space-y-1.5">
+                    <label className="text-[11px] text-zinc-400">Provider / Type</label>
+                    <select
+                      value={newSourceType}
+                      onChange={(e) => setNewSourceType(e.target.value as SourceType)}
+                      className="h-9 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-xs text-zinc-200 focus:border-indigo-500/70 focus:outline-none"
+                    >
+                      {addableTypesForMethod.map((item) => (
+                        <option key={item.type} value={item.type}>
+                          {item.label} ({item.method.toUpperCase()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div className="md:col-span-4">
-                <label className="block text-[11px] text-[var(--muted)] mb-1">Display Name</label>
-                <input
-                  value={newSourceName}
-                  onChange={(e) => setNewSourceName(e.target.value)}
-                  placeholder={`e.g. ${selectedCatalogMeta?.label ?? 'My Source'}`}
-                  className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-xs"
-                />
-              </div>
+                  <div className="md:col-span-4 space-y-1.5">
+                    <label className="text-[11px] text-zinc-400">Display Name</label>
+                    <Input
+                      value={newSourceName}
+                      onChange={(e) => setNewSourceName(e.target.value)}
+                      placeholder={`e.g. ${selectedCatalogMeta?.label ?? 'My Source'}`}
+                    />
+                  </div>
 
-              <div className="md:col-span-4">
-                <label className="block text-[11px] text-[var(--muted)] mb-1">
-                  {selectedCatalogMeta?.paramLabel ?? 'URL / Keyword / Board Token (Optional)'}
-                </label>
-                <input
-                  value={newSourceParam}
-                  onChange={(e) => setNewSourceParam(e.target.value)}
-                  placeholder={selectedCatalogMeta?.paramPlaceholder ?? 'Optional config value'}
-                  className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-xs"
-                />
-              </div>
-            </div>
+                  <div className="md:col-span-4 space-y-1.5">
+                    <label className="text-[11px] text-zinc-400">
+                      {selectedCatalogMeta?.paramLabel ?? 'URL / Keyword / Token (Optional)'}
+                    </label>
+                    <Input
+                      value={newSourceParam}
+                      onChange={(e) => setNewSourceParam(e.target.value)}
+                      placeholder={selectedCatalogMeta?.paramPlaceholder ?? 'Optional'}
+                    />
+                  </div>
+                </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[11px] text-[var(--muted)]">
-                {selectedCatalogMeta?.description}
-              </span>
-              <button
-                type="submit"
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Source
-              </button>
-            </div>
-          </form>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-[11px] text-zinc-400">
+                    {selectedCatalogMeta?.description}
+                  </span>
+                  <Button type="submit" disabled={busy}>
+                    <Plus className="w-3.5 h-3.5" /> Add Source
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
 
-          {/* Configured Sources List with Enable/Disable Switches */}
-          <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <Card>
+            <CardHeader className="flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold">
-                  Your Configured Sources ({sources.length})
-                </h2>
-                <p className="text-[11px] text-[var(--muted)]">
+                <CardTitle>Your Configured Sources ({sources.length})</CardTitle>
+                <CardDescription>
                   {sources.length === 0
-                    ? 'No custom list saved yet — worker uses all 10 recommended free sources automatically. Click Load Recommended to customize individually.'
-                    : 'Toggle any source on/off without deleting it.'}
-                </p>
+                    ? 'No custom list saved yet — worker runs all 10 recommended free feeds automatically.'
+                    : 'Toggle any source on or off anytime.'}
+                </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={seedRecommendedSources}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-300 cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> Load Recommended (10)
-                </button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={seedRecommendedSources}>
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Load Recommended (10)
+                </Button>
                 {sources.length > 0 && (
                   <>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => toggleAllSources(true)}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs hover:bg-[var(--surface-elevated)] cursor-pointer"
-                    >
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => toggleAllSources(true)}>
                       Enable All
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => toggleAllSources(false)}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--surface-elevated)] cursor-pointer"
-                    >
+                    </Button>
+                    <Button variant="ghost" size="sm" disabled={busy} onClick={() => toggleAllSources(false)}>
                       Pause All
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
-            </div>
+            </CardHeader>
 
             {sources.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {sources.map((src) => {
-                  const meta = catalogByType.get(src.source_type);
-                  const cfgSummary =
-                    (src.config?.url as string) ||
-                    (src.config?.boardToken as string) ||
-                    (src.config?.query as string) ||
-                    '';
-                  return (
-                    <div
-                      key={src.id}
-                      className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 transition-colors ${
-                        src.enabled
-                          ? 'border-[var(--border)] bg-[var(--bg)]'
-                          : 'border-[var(--border)]/60 bg-[var(--bg)]/50 opacity-70'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-xs truncate">{src.name}</span>
-                          {methodBadge(meta?.method ?? 'api')}
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {sources.map((src) => {
+                    const meta = catalogByType.get(src.source_type);
+                    const cfgSummary =
+                      (src.config?.url as string) ||
+                      (src.config?.boardToken as string) ||
+                      (src.config?.query as string) ||
+                      '';
+                    return (
+                      <div
+                        key={src.id}
+                        className={cn(
+                          'flex items-center justify-between gap-3 rounded-xl border p-3.5 transition-all',
+                          src.enabled
+                            ? 'border-zinc-800 bg-zinc-900/40'
+                            : 'border-zinc-800/50 bg-zinc-950/40 opacity-60',
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-xs text-zinc-100 truncate">
+                              {src.name}
+                            </span>
+                            {methodBadge(meta?.method ?? 'api')}
+                          </div>
+                          <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+                            {cfgSummary || meta?.description || src.source_type}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-[var(--muted)] truncate mt-0.5">
-                          {cfgSummary || meta?.description || src.source_type}
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <CustomSwitch
-                          checked={src.enabled}
-                          onChange={(next) => toggleSource(src.id, next)}
-                          label={`Toggle ${src.name}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => deleteSource(src.id)}
-                          className="text-slate-500 hover:text-red-400 p-1 cursor-pointer"
-                          title="Remove source"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <CustomSwitch
+                            checked={src.enabled}
+                            onChange={(next) => toggleSource(src.id, next)}
+                            label={`Toggle ${src.name}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => deleteSource(src.id)}
+                            className="text-zinc-500 hover:text-red-400 p-1 cursor-pointer"
+                            title="Remove source"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
             )}
-          </section>
+          </Card>
 
-          {/* All Available Sources Catalog */}
-          <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <Card>
+            <CardHeader className="flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold">
-                  All Available Sources Catalog ({SOURCE_CATALOG.length})
-                </h2>
-                <p className="text-[11px] text-[var(--muted)]">
-                  Every supported API, Scraping, and RSS provider built into the worker.
-                </p>
+                <CardTitle>All Available Sources Catalog ({SOURCE_CATALOG.length})</CardTitle>
+                <CardDescription>
+                  Built-in API, Scraping, and RSS providers supported by the VPS worker.
+                </CardDescription>
               </div>
-              <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--bg)] p-0.5">
+              <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1">
                 {(
                   [
                     { id: 'all', label: 'All' },
@@ -657,374 +574,345 @@ export default function SettingsPage() {
                     key={f.id}
                     type="button"
                     onClick={() => setMethodFilter(f.id)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer ${
-                      methodFilter === f.id ? 'bg-blue-600 text-white' : 'text-[var(--muted)]'
-                    }`}
+                    className={cn(
+                      'px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer',
+                      methodFilter === f.id ? 'bg-indigo-600 text-white' : 'text-zinc-400',
+                    )}
                   >
                     {f.label}
                   </button>
                 ))}
               </div>
-            </div>
+            </CardHeader>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredCatalog.map((entry) => {
-                const existing = sources.find((s) => s.source_type === entry.type);
-                return (
-                  <div
-                    key={entry.type}
-                    className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3.5 gap-3"
-                  >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-xs">{entry.label}</span>
-                        {methodBadge(entry.method)}
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredCatalog.map((entry) => {
+                  const existing = sources.find((s) => s.source_type === entry.type);
+                  return (
+                    <div
+                      key={entry.type}
+                      className="flex flex-col justify-between rounded-xl border border-zinc-800/90 bg-zinc-900/40 p-4 gap-3"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-xs text-zinc-100">{entry.label}</span>
+                          {methodBadge(entry.method)}
+                        </div>
+                        <p className="text-[11px] text-zinc-400 leading-relaxed">
+                          {entry.description}
+                        </p>
+                        {entry.requiresEnvKey && (
+                          <Badge variant="amber" className="text-[10px]">
+                            Requires {entry.requiresEnvKey}
+                          </Badge>
+                        )}
                       </div>
-                      <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                        {entry.description}
-                      </p>
-                      {entry.requiresEnvKey && (
-                        <span className="inline-block text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5">
-                          Requires {entry.requiresEnvKey} in .env
-                        </span>
-                      )}
-                    </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]/60">
-                      <span className="text-[10px] text-[var(--muted)]">
-                        {existing
-                          ? existing.enabled
-                            ? 'Enabled'
-                            : 'Paused'
-                          : 'Not added'}
-                      </span>
-                      {existing ? (
-                        <CustomSwitch
-                          checked={existing.enabled}
-                          onChange={(next) => toggleSource(existing.id, next)}
-                          label={`Toggle ${entry.label}`}
-                        />
-                      ) : entry.requiresParam === 'boardToken' || entry.type === 'rss' || entry.type === 'web_page' ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewSourceMethod(entry.method);
-                            setNewSourceType(entry.type);
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
-                          className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] text-blue-300 hover:bg-[var(--surface-elevated)] cursor-pointer"
-                        >
-                          Configure ↑
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => quickAddFromCatalog(entry.type, entry.label)}
-                          className="rounded-md bg-blue-600/20 border border-blue-500/40 px-2.5 py-1 text-[11px] font-medium text-blue-300 hover:bg-blue-600/30 cursor-pointer"
-                        >
-                          + Enable
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between pt-2.5 border-t border-zinc-800/80">
+                        <span className="text-[11px] text-zinc-400">
+                          {existing ? (existing.enabled ? 'Enabled' : 'Paused') : 'Not added'}
+                        </span>
+                        {existing ? (
+                          <CustomSwitch
+                            checked={existing.enabled}
+                            onChange={(next) => toggleSource(existing.id, next)}
+                            label={`Toggle ${entry.label}`}
+                          />
+                        ) : entry.requiresParam === 'boardToken' ||
+                          entry.type === 'rss' ||
+                          entry.type === 'web_page' ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setNewSourceMethod(entry.method);
+                              setNewSourceType(entry.type);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                          >
+                            Configure ↑
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busy}
+                            onClick={() => quickAddFromCatalog(entry.type, entry.label)}
+                          >
+                            + Enable
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 2: DISCOVERY RULES */}
+        <TabsContent value="rules">
+          <Card>
+            <CardHeader>
+              <CardTitle>Discovery & Matching Rules</CardTitle>
+              <CardDescription>
+                Tune target roles, locations, match threshold, and background cron schedule.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={saveAllSettings} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-zinc-400">Target Roles (comma-separated)</label>
+                    <Input value={targetRoles} onChange={(e) => setTargetRoles(e.target.value)} />
+                  </div>
+
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-zinc-400">Preferred Locations (comma-separated)</label>
+                    <Input
+                      value={targetLocations}
+                      onChange={(e) => setTargetLocations(e.target.value)}
+                      placeholder="Remote, Dhaka, Worldwide"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-400">
+                      Minimum Match Score: <strong className="text-indigo-300">{minMatchScore}%</strong>
+                    </label>
+                    <input
+                      type="range"
+                      min={20}
+                      max={95}
+                      value={minMatchScore}
+                      onChange={(e) => setMinMatchScore(Number(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-zinc-500">
+                      <span>20% Broad</span>
+                      <span>65% Balanced</span>
+                      <span>95% Strict</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-      )}
 
-      {/* TAB 2: DISCOVERY & MATCHING RULES */}
-      {activeTab === 'rules' && (
-        <form
-          onSubmit={saveAllSettings}
-          className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5"
-        >
-          <div>
-            <h2 className="text-base font-semibold">Discovery & Matching Rules</h2>
-            <p className="text-xs text-[var(--muted)]">
-              Control what roles the worker targets, schedule frequency, and minimum AI match score.
-            </p>
-          </div>
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-400">Daily Manual Email Cap</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={dailyEmailCap}
+                      onChange={(e) => setDailyEmailCap(Number(e.target.value))}
+                    />
+                  </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div className="md:col-span-2">
-              <label className="block text-[var(--muted)] mb-1">
-                Target Roles (comma-separated, used for BDJobs/LinkedIn/Remotive queries & scoring)
-              </label>
-              <input
-                value={targetRoles}
-                onChange={(e) => setTargetRoles(e.target.value)}
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </div>
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-400">Cron Schedule Preset</label>
+                    <select
+                      value={CRON_PRESETS.some((p) => p.value === cronSchedule) ? cronSchedule : ''}
+                      onChange={(e) => {
+                        if (e.target.value) setCronSchedule(e.target.value);
+                      }}
+                      className="h-9 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-xs text-zinc-200"
+                    >
+                      <option value="">Custom cron expression</option>
+                      {CRON_PRESETS.map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-[var(--muted)] mb-1">
-                Preferred Locations (comma-separated)
-              </label>
-              <input
-                value={targetLocations}
-                onChange={(e) => setTargetLocations(e.target.value)}
-                placeholder="Remote, Dhaka, Worldwide"
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[var(--muted)] mb-1">
-                Minimum Match Score: <strong className="text-blue-300">{minMatchScore}%</strong>
-              </label>
-              <input
-                type="range"
-                min={20}
-                max={95}
-                value={minMatchScore}
-                onChange={(e) => setMinMatchScore(Number(e.target.value))}
-                className="w-full accent-blue-500 cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-[var(--muted)]">
-                <span>20% (Broad)</span>
-                <span>65% (Balanced)</span>
-                <span>95% (Strict)</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[var(--muted)] mb-1">Daily Manual Email Cap</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={dailyEmailCap}
-                onChange={(e) => setDailyEmailCap(Number(e.target.value))}
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[var(--muted)] mb-1">Cron Schedule Preset</label>
-              <select
-                value={CRON_PRESETS.some((p) => p.value === cronSchedule) ? cronSchedule : ''}
-                onChange={(e) => {
-                  if (e.target.value) setCronSchedule(e.target.value);
-                }}
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-              >
-                <option value="">Custom cron expression</option>
-                {CRON_PRESETS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[var(--muted)] mb-1">Cron Expression</label>
-              <input
-                value={cronSchedule}
-                onChange={(e) => setCronSchedule(e.target.value)}
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm font-mono"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-            <CustomCheckbox
-              checked={remoteOnly}
-              onChange={setRemoteOnly}
-              label="Remote-Only Filter"
-              description="Skip on-site jobs during autonomous discovery runs."
-            />
-            <CustomCheckbox
-              checked={isPaused}
-              onChange={setIsPaused}
-              label="Pause Autonomous Scheduler"
-              description="Temporarily stop automatic background cron runs (manual runs still work)."
-            />
-          </div>
-
-          <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
-            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300">
-              <ShieldCheck className="w-4 h-4" /> Manual-only outreach enforced (never auto-sends)
-            </span>
-            <button
-              type="submit"
-              disabled={busy}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-500 px-5 py-2 text-xs font-semibold text-white cursor-pointer"
-            >
-              <Save className="w-4 h-4" /> Save Rules
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* TAB 3: NOTIFICATIONS & ALERTS */}
-      {activeTab === 'notifications' && (
-        <form
-          onSubmit={saveAllSettings}
-          className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-5"
-        >
-          <div>
-            <h2 className="text-base font-semibold">Telegram & Summary Email Reports</h2>
-            <p className="text-xs text-[var(--muted)]">
-              Reports are sent strictly to you after discovery runs (found count, matched count, applied & employees reached).
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block text-[var(--muted)] mb-1">Your Full Name (Email Sender Name)</label>
-              <input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[var(--muted)] mb-1">Summary Report Email</label>
-              <input
-                type="email"
-                value={summaryEmail}
-                onChange={(e) => setSummaryEmail(e.target.value)}
-                className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-[var(--muted)] mb-1">Telegram Chat ID</label>
-              <div className="flex gap-2">
-                <input
-                  value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
-                  placeholder="e.g. 5582710381"
-                  className="flex-1 rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={sendTestTelegram}
-                  className="rounded-lg border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 px-4 py-2 text-xs font-semibold text-blue-300 cursor-pointer"
-                >
-                  Send Test Ping
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-            <CustomCheckbox
-              checked={telegramEnabled}
-              onChange={setTelegramEnabled}
-              label="Enable Telegram Run Alerts"
-              description="Send instant summary metrics and top matched links to your Telegram bot."
-            />
-            <CustomCheckbox
-              checked={summaryEmailEnabled}
-              onChange={setSummaryEmailEnabled}
-              label="Enable Summary Email Digest"
-              description="Send a formatted HTML summary report to your own inbox."
-            />
-          </div>
-
-          <div className="flex justify-end pt-3 border-t border-[var(--border)]">
-            <button
-              type="submit"
-              disabled={busy}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-500 px-5 py-2 text-xs font-semibold text-white cursor-pointer"
-            >
-              <Save className="w-4 h-4" /> Save Notification Settings
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* TAB 4: ACCOUNT & PASSWORD CHANGE */}
-      {activeTab === 'security' && (
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-          <div className="md:col-span-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3">
-            <h2 className="text-base font-semibold">Account Identity</h2>
-            <div className="rounded-xl bg-[var(--bg)] border border-[var(--border)] p-3.5 space-y-2 text-xs">
-              <div>
-                <span className="text-[var(--muted)]">Signed in as</span>
-                <div className="font-semibold text-sm mt-0.5">{userEmail || 'Loading...'}</div>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
-                <span className="text-[var(--muted)]">Authorization Role</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 uppercase text-[10px] font-semibold">
-                  {userRole}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[var(--muted)]">Row Level Security</span>
-                <span className="text-emerald-300">Active (auth.uid)</span>
-              </div>
-            </div>
-          </div>
-
-          <form
-            onSubmit={handleChangePassword}
-            className="md:col-span-7 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4"
-          >
-            <div>
-              <h2 className="text-base font-semibold flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-blue-400" /> Change Password
-              </h2>
-              <p className="text-xs text-[var(--muted)] mt-0.5">
-                Update your Supabase account password immediately.
-              </p>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-[var(--muted)] mb-1">New Password</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Minimum 6 characters"
-                    className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 pr-10 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-2.5 top-2.5 text-[var(--muted)] hover:text-[var(--text)] cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-400">Cron Expression</label>
+                    <Input
+                      value={cronSchedule}
+                      onChange={(e) => setCronSchedule(e.target.value)}
+                      className="font-mono"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-[var(--muted)] mb-1">Confirm New Password</label>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  minLength={6}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter new password"
-                  className="w-full rounded-lg bg-[var(--bg)] border border-[var(--border)] px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <CustomCheckbox
+                    checked={remoteOnly}
+                    onChange={setRemoteOnly}
+                    label="Remote-Only Filter"
+                    description="Skip non-remote postings during autonomous runs."
+                  />
+                  <CustomCheckbox
+                    checked={isPaused}
+                    onChange={setIsPaused}
+                    label="Pause Autonomous Scheduler"
+                    description="Temporarily pause scheduled runs while keeping manual runs active."
+                  />
+                </div>
 
-            <button
-              type="submit"
-              disabled={busy}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
-            >
-              <KeyRound className="w-3.5 h-3.5" /> Update Password
-            </button>
-          </form>
-        </div>
-      )}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-800">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300">
+                    <ShieldCheck className="w-4 h-4" /> Manual-only outreach enforced
+                  </span>
+                  <Button type="submit" disabled={busy}>
+                    <Save className="w-3.5 h-3.5" /> Save Rules
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 3: NOTIFICATIONS */}
+        <TabsContent value="notifications">
+          <Card>
+            <CardHeader>
+              <CardTitle>Telegram & Summary Email Reports</CardTitle>
+              <CardDescription>
+                Sent strictly to you after discovery runs with found, matched, applied, and employees-reached counts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={saveAllSettings} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-400">Full Name (Email Sender Name)</label>
+                    <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-zinc-400">Summary Report Email</label>
+                    <Input
+                      type="email"
+                      value={summaryEmail}
+                      onChange={(e) => setSummaryEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-zinc-400">Telegram Chat ID</label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={telegramChatId}
+                        onChange={(e) => setTelegramChatId(e.target.value)}
+                        placeholder="e.g. 5582710381"
+                      />
+                      <Button type="button" variant="outline" disabled={busy} onClick={sendTestTelegram}>
+                        Send Test Ping
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <CustomCheckbox
+                    checked={telegramEnabled}
+                    onChange={setTelegramEnabled}
+                    label="Enable Telegram Run Alerts"
+                    description="Receive instant run summaries and top matched links on Telegram."
+                  />
+                  <CustomCheckbox
+                    checked={summaryEmailEnabled}
+                    onChange={setSummaryEmailEnabled}
+                    label="Enable Summary Email Digest"
+                    description="Receive an HTML summary report in your personal inbox."
+                  />
+                </div>
+
+                <div className="flex justify-end pt-3 border-t border-zinc-800">
+                  <Button type="submit" disabled={busy}>
+                    <Save className="w-3.5 h-3.5" /> Save Notification Settings
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 4: ACCOUNT & PASSWORD */}
+        <TabsContent value="security">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+            <Card className="md:col-span-5">
+              <CardHeader>
+                <CardTitle>Account Identity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3 text-xs">
+                  <div>
+                    <span className="text-zinc-400">Signed in as</span>
+                    <div className="font-semibold text-sm text-zinc-100 mt-0.5">
+                      {userEmail || 'Loading...'}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-2.5 border-t border-zinc-800">
+                    <span className="text-zinc-400">Authorization Role</span>
+                    <Badge variant="emerald" className="uppercase text-[10px]">
+                      {userRole}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-400">Row Level Security</span>
+                    <span className="text-emerald-300 font-medium">Active (auth.uid)</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="md:col-span-7">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-indigo-400" /> Change Password
+                </CardTitle>
+                <CardDescription>
+                  Update your Supabase account password immediately.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-zinc-400">New Password</label>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        className="pr-9"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-2.5 top-2.5 text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-zinc-400">Confirm New Password</label>
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={6}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter new password"
+                    />
+                  </div>
+
+                  <Button type="submit" disabled={busy}>
+                    <KeyRound className="w-3.5 h-3.5" /> Update Password
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

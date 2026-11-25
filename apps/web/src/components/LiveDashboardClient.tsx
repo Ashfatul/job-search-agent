@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   ClipboardCopy,
   ExternalLink,
@@ -16,7 +17,21 @@ import {
   SkipForward,
   Terminal,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input, Textarea } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SomewhatSearchBar } from './SomewhatSearchBar';
 import { TriggerWorkerButton } from './TriggerWorkerButton';
 
@@ -125,11 +140,9 @@ export function LiveDashboardClient({
   const [setup, setSetup] = useState<SetupSummary>(initialSetup);
   const [selectedQueueId, setSelectedQueueId] = useState<string | null>(initialQueue[0]?.id ?? null);
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(initialRuns[0]?.id ?? null);
+  const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [justTriggered, setJustTriggered] = useState(false);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [showLogs, setShowLogs] = useState(false);
-  const [showErrors, setShowErrors] = useState(false);
 
   const selectedItem = queue.find((q) => q.id === selectedQueueId) ?? queue[0] ?? null;
   const initialEmail =
@@ -169,9 +182,9 @@ export function LiveDashboardClient({
   }, []);
 
   const activeRun = runs.find((r) => r.status === 'running') ?? null;
-  const inspectedRun = activeRun ?? runs.find((r) => r.id === inspectedRunId) ?? runs[0] ?? null;
+  const latestRun = runs[0] ?? null;
+  const inspectedRun = activeRun ?? runs.find((r) => r.id === inspectedRunId) ?? latestRun ?? null;
 
-  // Supabase Realtime subscription
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -208,7 +221,6 @@ export function LiveDashboardClient({
     };
   }, [userId, refreshDashboard]);
 
-  // 2s live polling fallback while running
   useEffect(() => {
     if (!activeRun && !justTriggered) return;
     const timer = setInterval(() => void refreshDashboard(), 2000);
@@ -221,24 +233,24 @@ export function LiveDashboardClient({
 
   async function togglePause() {
     setBusyId('pause');
-    await fetch('/api/settings', {
+    const res = await fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ settings: { is_paused: !setup.isPaused } }),
     });
+    if (res.ok) toast.success(setup.isPaused ? 'Scheduler resumed' : 'Scheduler paused');
     await refreshDashboard();
     setBusyId(null);
   }
 
   async function updateAppStatus(appId: string, status: 'applied' | 'skipped') {
     setBusyId(appId);
-    setActionMsg(null);
-    await fetch('/api/applications', {
+    const res = await fetch('/api/applications', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: appId, status }),
     });
-    setActionMsg(status === 'applied' ? 'Marked as Applied!' : 'Skipped job.');
+    if (res.ok) toast.success(status === 'applied' ? 'Marked as Applied!' : 'Skipped job');
     await refreshDashboard();
     setBusyId(null);
   }
@@ -247,12 +259,11 @@ export function LiveDashboardClient({
     if (!selectedItem) return;
     if (action === 'copy') {
       await navigator.clipboard.writeText(`Subject: ${editSubject}\n\n${editBody}`);
-      setActionMsg('Copied subject & email body to clipboard.');
+      toast.success('Copied email to clipboard');
       return;
     }
 
     setBusyId(selectedItem.id);
-    setActionMsg(null);
     try {
       if (action === 'regenerate' || !initialEmail) {
         const res = await fetch('/api/outreach/draft', {
@@ -266,7 +277,7 @@ export function LiveDashboardClient({
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to draft');
-        setActionMsg('Drafted fresh human-like initial email!');
+        toast.success('Generated fresh human-like initial email');
       } else {
         const res = await fetch('/api/outreach/send', {
           method: 'POST',
@@ -281,11 +292,11 @@ export function LiveDashboardClient({
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Action failed');
-        setActionMsg(action === 'send_now' ? 'Email sent manually!' : 'Saved draft edits.');
+        toast.success(action === 'send_now' ? 'Email sent manually!' : 'Draft edits saved');
       }
       await refreshDashboard();
     } catch (err) {
-      setActionMsg(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusyId(null);
     }
@@ -293,75 +304,77 @@ export function LiveDashboardClient({
 
   const workflowSteps = [
     {
-      step: '1. Resume & Criteria',
-      status: setup.hasResume ? 'ok' : 'warn',
+      step: '01',
+      label: 'Resume & Profile',
+      state: setup.hasResume ? 'ready' : 'action',
       value: setup.hasResume ? setup.resumeTitle || 'Active' : 'Upload Resume',
       sub: setup.targetRoles.slice(0, 2).join(', ') || 'Set target roles',
       href: '/resume',
     },
     {
-      step: '2. Sources & Rules',
-      status: 'ok',
+      step: '02',
+      label: 'Sources & Rules',
+      state: 'ready',
       value:
         setup.sourcesCount > 0
           ? `${setup.enabledSourcesCount}/${setup.sourcesCount} active`
-          : '10 Default Free Feeds',
+          : '10 Default Feeds',
       sub: `Min ${setup.minMatchScore}% • ${setup.cronSchedule}`,
       href: '/settings',
     },
     {
-      step: '3. Discovery Worker',
-      status: activeRun ? 'running' : inspectedRun?.status === 'failed' ? 'warn' : 'ok',
+      step: '03',
+      label: 'Discovery Worker',
+      state: activeRun ? 'active' : latestRun?.status === 'failed' ? 'action' : 'ready',
       value: activeRun
         ? `Running ${activeRun.log_summary?.progress ?? 10}%`
-        : inspectedRun
-          ? `${inspectedRun.jobs_found} found last run`
-          : 'Ready to run',
-      sub: setup.isPaused ? 'Scheduler paused' : 'Runs automatically',
-      href: '#live-console',
+        : latestRun
+          ? `${latestRun.jobs_found} found last run`
+          : 'Ready',
+      sub: setup.isPaused ? 'Scheduler paused' : 'Runs on schedule',
+      href: '#live-bar',
     },
     {
-      step: '4. Review & Apply Queue',
-      status: queue.length > 0 ? 'running' : 'ok',
-      value: `${queue.length} to review`,
+      step: '04',
+      label: 'Review & Apply',
+      state: queue.length > 0 ? 'active' : 'ready',
+      value: `${queue.length} waiting`,
       sub: `${kpis.draftCount} drafts ready`,
       href: '#review-queue',
     },
     {
-      step: '5. Active Pipeline',
-      status: 'ok',
+      step: '05',
+      label: 'Applied Pipeline',
+      state: 'ready',
       value: `${kpis.appliedCount} applied`,
-      sub: `${kpis.repliedCount} replied • ${kpis.employeesReached} reached`,
+      sub: `${kpis.repliedCount} replies • ${kpis.employeesReached} reached`,
       href: '/tracker',
     },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Top Control Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <div>
-          <h1 className="text-xl font-bold">Job Search Control & Workflow</h1>
-          <p className="text-xs text-[var(--muted)] mt-1">
-            Discovery & drafting run automatically on your schedule. All applications and emails are sent manually by you.
+      {/* Hero Control Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-2xl border border-zinc-800/90 bg-zinc-950/80 p-5 ring-1 ring-white/[0.03]">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold tracking-tight">Workflow Control Center</h1>
+            <Badge variant="emerald">Manual Apply Only</Badge>
+          </div>
+          <p className="text-xs text-zinc-400">
+            Autonomous discovery & matching runs 24/7. Review matches, edit human-like drafts, and apply manually below.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
+          <Button
+            variant={setup.isPaused ? 'success' : 'outline'}
             disabled={busyId === 'pause'}
             onClick={togglePause}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium cursor-pointer ${
-              setup.isPaused
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                : 'border-[var(--border)] bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--text)]'
-            }`}
           >
             {setup.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             {setup.isPaused ? 'Resume Schedule' : 'Pause Schedule'}
-          </button>
-
+          </Button>
           <TriggerWorkerButton
             isAgentRunning={Boolean(activeRun)}
             onTriggered={() => {
@@ -372,129 +385,452 @@ export function LiveDashboardClient({
         </div>
       </div>
 
-      {/* 5-Stage End-to-End Pipeline Flow */}
+      {/* 5-Stage Pipeline Flow */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {workflowSteps.map((item) => (
           <Link
             key={item.step}
             href={item.href}
-            className={`rounded-xl border p-3.5 transition-colors hover:border-blue-500/50 ${
-              item.status === 'warn'
-                ? 'border-amber-500/40 bg-amber-500/5'
-                : item.status === 'running'
-                  ? 'border-blue-500/40 bg-blue-500/5'
-                  : 'border-[var(--border)] bg-[var(--surface)]'
-            }`}
+            className={cn(
+              'group rounded-2xl border p-4 transition-all hover:-translate-y-0.5',
+              item.state === 'action'
+                ? 'border-amber-500/35 bg-amber-500/[0.05] hover:border-amber-500/60'
+                : item.state === 'active'
+                  ? 'border-indigo-500/40 bg-indigo-500/[0.07] hover:border-indigo-400/70'
+                  : 'border-zinc-800/90 bg-zinc-950/70 hover:border-zinc-700',
+            )}
           >
-            <div className="text-[11px] font-medium text-[var(--muted)]">{item.step}</div>
-            <div className="text-sm font-bold mt-1 truncate">{item.value}</div>
-            <div className="text-[11px] text-[var(--muted)] mt-0.5 truncate">{item.sub}</div>
+            <div className="flex items-center justify-between text-[11px] text-zinc-400">
+              <span className="font-mono text-zinc-500">{item.step}</span>
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full',
+                  item.state === 'action'
+                    ? 'bg-amber-400'
+                    : item.state === 'active'
+                      ? 'bg-indigo-400 animate-pulse'
+                      : 'bg-emerald-400',
+                )}
+              />
+            </div>
+            <div className="text-xs font-medium text-zinc-400 mt-1.5">{item.label}</div>
+            <div className="text-sm font-bold text-zinc-100 mt-0.5 truncate">{item.value}</div>
+            <div className="text-[11px] text-zinc-500 mt-1 truncate">{item.sub}</div>
           </Link>
         ))}
       </div>
 
-      {/* Live Execution Console (Compact strip when idle; expands live while running or when inspected) */}
-      {(inspectedRun || justTriggered) && (
-        <section
-          id="live-console"
-          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 space-y-3"
+      {/* Compact Live Status Strip (expands only while running; logs open cleanly in Modal) */}
+      {(latestRun || justTriggered) && (
+        <div
+          id="live-bar"
+          className="rounded-2xl border border-zinc-800/90 bg-zinc-950/80 px-4 py-3 space-y-2.5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-semibold">
+            <div className="flex items-center gap-2.5 text-xs">
               {activeRun || justTriggered ? (
-                <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
-              ) : inspectedRun?.status === 'failed' ? (
-                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-400 shrink-0" />
+              ) : latestRun?.status === 'failed' ? (
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
               ) : (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
               )}
-              <span>
-                {activeRun || justTriggered ? 'Live Run: ' : 'Last Run: '}
-                {inspectedRun?.log_summary?.message ||
-                  (justTriggered ? 'Waiting for worker to start run...' : inspectedRun?.status)}
+              <span className="font-medium text-zinc-200">
+                {activeRun || justTriggered
+                  ? activeRun?.log_summary?.message || 'Starting autonomous run...'
+                  : latestRun?.log_summary?.message || `Last run ${latestRun?.status}`}
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
-              {inspectedRun && (
-                <>
-                  <span>Found: <strong className="text-[var(--text)]">{inspectedRun.jobs_found}</strong></span>
-                  <span>Matched: <strong className="text-[var(--text)]">{inspectedRun.jobs_matched}</strong></span>
-                  <span>Drafted: <strong className="text-[var(--text)]">{inspectedRun.emails_drafted}</strong></span>
-                </>
+            <div className="flex items-center gap-3 text-xs text-zinc-400">
+              {latestRun && (
+                <div className="hidden sm:flex items-center gap-3">
+                  <span>Found <strong className="text-zinc-100">{latestRun.jobs_found}</strong></span>
+                  <span>Matched <strong className="text-zinc-100">{latestRun.jobs_matched}</strong></span>
+                  <span>Drafted <strong className="text-zinc-100">{latestRun.emails_drafted}</strong></span>
+                </div>
               )}
-              {!activeRun && !justTriggered && (
-                <button
-                  type="button"
-                  onClick={() => setShowLogs((v) => !v)}
-                  className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] font-medium text-blue-300 hover:bg-[var(--surface-elevated)] cursor-pointer"
-                >
-                  {showLogs ? 'Hide Logs' : 'Inspect Logs'}
-                </button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (latestRun) setInspectedRunId(latestRun.id);
+                  setLogDialogOpen(true);
+                }}
+              >
+                <Terminal className="w-3.5 h-3.5" /> Inspect Run Logs
+              </Button>
             </div>
           </div>
 
-          {(Boolean(activeRun) || justTriggered || showLogs) && (
-            <div className="space-y-3 pt-1">
-              <div className="h-1.5 w-full rounded-full bg-[var(--bg)] overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    inspectedRun?.status === 'failed'
-                      ? 'bg-red-500'
-                      : inspectedRun?.status === 'completed'
-                        ? 'bg-emerald-500'
-                        : 'bg-blue-500'
-                  }`}
-                  style={{
-                    width: `${
-                      inspectedRun?.log_summary?.progress ??
-                      (inspectedRun?.status === 'completed' ? 100 : 12)
-                    }%`,
-                  }}
-                />
+          {(Boolean(activeRun) || justTriggered) && (
+            <div className="h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-500"
+                style={{ width: `${activeRun?.log_summary?.progress ?? 12}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Primary Review & Manual Apply Queue */}
+      <Card id="review-queue">
+        <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-zinc-800/80 pb-4">
+          <div>
+            <CardTitle>Review & Manual Apply Queue ({queue.length})</CardTitle>
+            <CardDescription>
+              High-match roles awaiting your review. Customize the human-like apply email, send manually, or open the link.
+            </CardDescription>
+          </div>
+          <Link
+            href="/tracker"
+            className="text-xs font-medium text-indigo-400 hover:text-indigo-300 inline-flex items-center gap-1"
+          >
+            Full Job Pipeline <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </CardHeader>
+
+        <CardContent className="pt-4">
+          {queue.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30 p-8 text-center space-y-2">
+              <p className="text-sm font-medium text-zinc-300">Your review queue is clear</p>
+              <p className="text-xs text-zinc-500">
+                Click <strong>Run Agent Now</strong> to discover new matched jobs, or browse all discovered roles in the Job Pipeline.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              {/* Left List */}
+              <div className="lg:col-span-5 space-y-2 max-h-[560px] overflow-y-auto pr-1">
+                {queue.map((item) => {
+                  const active = selectedItem?.id === item.id;
+                  const initials = (item.job.company[0] ?? 'J').toUpperCase();
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedQueueId(item.id)}
+                      className={cn(
+                        'rounded-xl border p-3.5 cursor-pointer transition-all',
+                        active
+                          ? 'border-indigo-500/60 bg-indigo-500/[0.08] ring-1 ring-indigo-500/20'
+                          : 'border-zinc-800/80 bg-zinc-900/40 hover:border-zinc-700',
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-zinc-800 border border-zinc-700/80 flex items-center justify-center text-xs font-bold text-zinc-200 shrink-0">
+                          {initials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-semibold text-xs text-zinc-100 truncate">
+                              {item.job.title}
+                            </div>
+                            <Badge variant="indigo" className="shrink-0">
+                              {item.job.match_score}%
+                            </Badge>
+                          </div>
+                          <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+                            {item.job.company} • {item.job.location || 'Remote'}
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <Badge variant="cyan" className="text-[10px] py-0 px-2">
+                              {item.job.source_name}
+                            </Badge>
+                            {item.job.contact_email && (
+                              <span className="text-[11px] text-emerald-300 inline-flex items-center gap-1 truncate max-w-[160px]">
+                                <Mail className="w-3 h-3 shrink-0" /> {item.job.contact_email}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              {inspectedRun?.log_summary?.sourceResults &&
-                inspectedRun.log_summary.sourceResults.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {inspectedRun.log_summary.sourceResults.map((sr) => (
-                      <span
-                        key={sr.source}
-                        title={sr.error || `${sr.count} jobs fetched`}
-                        className={`px-2 py-0.5 rounded-full text-[11px] border ${
-                          sr.status === 'ok'
-                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                            : 'border-red-500/30 bg-red-500/10 text-red-300'
-                        }`}
+              {/* Right Workspace */}
+              {selectedItem && (
+                <div className="lg:col-span-7 rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="cyan">{selectedItem.job.source_name}</Badge>
+                        <Badge variant="indigo">{selectedItem.job.match_score}% Match</Badge>
+                      </div>
+                      <h3 className="text-base font-bold text-zinc-100">{selectedItem.job.title}</h3>
+                      <p className="text-xs text-zinc-400">
+                        {selectedItem.job.company} • {selectedItem.job.location || 'Remote'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <a
+                        href={selectedItem.job.apply_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-900"
                       >
-                        {sr.source}: {sr.status === 'ok' ? `${sr.count} found` : 'error'}
-                      </span>
-                    ))}
+                        Open Post <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <Button
+                        size="sm"
+                        variant="success"
+                        disabled={busyId === selectedItem.id}
+                        onClick={() => updateAppStatus(selectedItem.id, 'applied')}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Mark Applied
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === selectedItem.id}
+                        onClick={() => updateAppStatus(selectedItem.id, 'skipped')}
+                      >
+                        <SkipForward className="w-3.5 h-3.5" /> Skip
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Tabs defaultValue="email">
+                    <TabsList>
+                      <TabsTrigger value="email">Apply Email Composer</TabsTrigger>
+                      <TabsTrigger value="analysis">Match Analysis & Job Details</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="email" className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-zinc-400">
+                          Human-like initial application draft (sent only when you click Send)
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busyId === selectedItem.id}
+                          onClick={() => handleDraftAction('regenerate')}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          {initialEmail ? 'Regenerate' : 'Generate Draft'}
+                        </Button>
+                      </div>
+
+                      <Input
+                        type="email"
+                        value={editRecipient}
+                        onChange={(e) => setEditRecipient(e.target.value)}
+                        placeholder="Hiring manager / recruiter email (e.g. jobs@company.com)"
+                      />
+                      <Input
+                        type="text"
+                        value={editSubject}
+                        onChange={(e) => setEditSubject(e.target.value)}
+                        placeholder="Subject line"
+                        className="font-medium"
+                      />
+                      <Textarea
+                        rows={7}
+                        value={editBody}
+                        onChange={(e) => setEditBody(e.target.value)}
+                        placeholder="Email body..."
+                      />
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => handleDraftAction('copy')}>
+                          <ClipboardCopy className="w-3.5 h-3.5" /> Copy Email
+                        </Button>
+                        {initialEmail && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={busyId === selectedItem.id}
+                              onClick={() => handleDraftAction('save')}
+                            >
+                              Save Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={busyId === selectedItem.id}
+                              onClick={() => handleDraftAction('send_now')}
+                            >
+                              <Send className="w-3.5 h-3.5" /> Send Manually Now
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="analysis" className="space-y-3">
+                      {selectedItem.job.match_summary?.rationale && (
+                        <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3.5 space-y-2.5 text-xs">
+                          <div className="font-semibold text-indigo-300">AI Match Rationale</div>
+                          <p className="text-zinc-300 leading-relaxed">
+                            {selectedItem.job.match_summary.rationale}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(selectedItem.job.match_summary.matchedSkills ?? []).map((s) => (
+                              <Badge key={s} variant="emerald" className="text-[10px]">
+                                ✓ {s}
+                              </Badge>
+                            ))}
+                            {(selectedItem.job.match_summary.missingSkills ?? []).map((s) => (
+                              <Badge key={s} variant="amber" className="text-[10px]">
+                                Gap: {s}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3.5 text-xs text-zinc-300 max-h-52 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                        {selectedItem.job.description || 'No description excerpt stored.'}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Somewhat Search */}
+      <SomewhatSearchBar />
+
+      {/* Compact Run History */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle>Run History</CardTitle>
+          <CardDescription>Click any run to inspect source counts and execution logs.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {runs.length === 0 ? (
+            <p className="text-xs text-zinc-500">No runs recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-400">
+                    <th className="py-2 pr-4 font-medium">Started</th>
+                    <th className="py-2 pr-4 font-medium">Trigger</th>
+                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">Found</th>
+                    <th className="py-2 pr-4 font-medium">Matched</th>
+                    <th className="py-2 pr-4 font-medium">Drafted</th>
+                    <th className="py-2 font-medium">Employees Reached</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((run) => (
+                    <tr
+                      key={run.id}
+                      onClick={() => {
+                        setInspectedRunId(run.id);
+                        setLogDialogOpen(true);
+                      }}
+                      className="border-b border-zinc-800/50 cursor-pointer hover:bg-zinc-900/60 transition-colors"
+                    >
+                      <td className="py-2.5 pr-4 whitespace-nowrap text-zinc-200">
+                        {new Date(run.started_at).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 pr-4 uppercase text-zinc-400">{run.trigger_type}</td>
+                      <td className="py-2.5 pr-4">
+                        <Badge
+                          variant={
+                            run.status === 'completed'
+                              ? 'emerald'
+                              : run.status === 'failed'
+                                ? 'red'
+                                : 'indigo'
+                          }
+                          className="uppercase text-[10px]"
+                        >
+                          {run.status}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 pr-4">{run.jobs_found}</td>
+                      <td className="py-2.5 pr-4">{run.jobs_matched}</td>
+                      <td className="py-2.5 pr-4">{run.emails_drafted}</td>
+                      <td className="py-2.5">{run.employees_reached}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Run Logs & Per-Source Breakdown Dialog */}
+      <Dialog open={logDialogOpen} onOpenChange={setLogDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-indigo-400" />
+              Agent Run Telemetry
+            </DialogTitle>
+            <DialogDescription>
+              {inspectedRun
+                ? `${new Date(inspectedRun.started_at).toLocaleString()} • ${inspectedRun.status.toUpperCase()}`
+                : 'No run selected'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {inspectedRun && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-4 gap-2 text-center">
+                {[
+                  { label: 'Found', val: inspectedRun.jobs_found },
+                  { label: 'Matched', val: inspectedRun.jobs_matched },
+                  { label: 'Drafted', val: inspectedRun.emails_drafted },
+                  { label: 'Reached', val: inspectedRun.employees_reached },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5"
+                  >
+                    <div className="text-[11px] text-zinc-400">{stat.label}</div>
+                    <div className="text-base font-bold text-zinc-100">{stat.val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {inspectedRun.log_summary?.sourceResults &&
+                inspectedRun.log_summary.sourceResults.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-zinc-300">Source Breakdown</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {inspectedRun.log_summary.sourceResults.map((sr) => (
+                        <Badge
+                          key={sr.source}
+                          variant={sr.status === 'ok' ? 'emerald' : 'red'}
+                          title={sr.error || `${sr.count} jobs`}
+                        >
+                          {sr.source}: {sr.status === 'ok' ? `${sr.count} found` : 'error'}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-              {inspectedRun?.log_summary?.events && inspectedRun.log_summary.events.length > 0 && (
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 max-h-40 overflow-y-auto font-mono text-[11px] space-y-1">
-                  <div className="flex items-center gap-1.5 text-[var(--muted)] mb-1 font-sans font-semibold">
-                    <Terminal className="w-3.5 h-3.5" /> Run Event Log
-                  </div>
+              {inspectedRun.log_summary?.events && inspectedRun.log_summary.events.length > 0 && (
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-3 max-h-56 overflow-y-auto font-mono text-[11px] space-y-1.5">
                   {inspectedRun.log_summary.events
                     .slice()
                     .reverse()
                     .map((ev, idx) => (
                       <div key={idx} className="flex gap-2">
-                        <span className="text-[var(--muted)] shrink-0">
+                        <span className="text-zinc-500 shrink-0">
                           {new Date(ev.ts).toLocaleTimeString()}
                         </span>
-                        <span className="text-blue-400 shrink-0">[{ev.step}]</span>
+                        <span className="text-indigo-400 shrink-0">[{ev.step}]</span>
                         <span
                           className={
                             ev.status === 'error'
                               ? 'text-red-300'
                               : ev.status === 'ok'
                                 ? 'text-emerald-300'
-                                : 'text-[var(--text)]'
+                                : 'text-zinc-200'
                           }
                         >
                           {ev.detail}
@@ -504,300 +840,15 @@ export function LiveDashboardClient({
                 </div>
               )}
 
-              {inspectedRun?.error_message && (
-                <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">Warnings / Errors</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowErrors((v) => !v)}
-                      className="text-[11px] underline cursor-pointer"
-                    >
-                      {showErrors ? 'Collapse' : 'Show full details'}
-                    </button>
-                  </div>
-                  <div className="whitespace-pre-wrap text-[11px]">
-                    {showErrors
-                      ? inspectedRun.error_message
-                      : inspectedRun.error_message.split('\n').slice(0, 2).join('\n')}
-                  </div>
+              {inspectedRun.error_message && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-200 max-h-40 overflow-y-auto whitespace-pre-wrap">
+                  {inspectedRun.error_message}
                 </div>
               )}
             </div>
           )}
-        </section>
-      )}
-
-      {/* Step 4: Interactive Review & Manual Apply Queue */}
-      <section
-        id="review-queue"
-        className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold">
-              Review & Manual Apply Queue ({queue.length})
-            </h2>
-            <p className="text-xs text-[var(--muted)]">
-              Inspect matched roles, review or customize the human-like apply email, send manually, or open the portal.
-            </p>
-          </div>
-          <Link href="/tracker" className="text-xs text-blue-400 hover:underline">
-            Open Full Pipeline & Follow-Ups →
-          </Link>
-        </div>
-
-        {actionMsg && (
-          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-200">
-            {actionMsg}
-          </div>
-        )}
-
-        {queue.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-6 text-xs text-[var(--muted)]">
-            No pending jobs waiting for review. Upload your resume and click <strong>Run Agent Now</strong> to discover & score matches.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            {/* Queue List */}
-            <div className="lg:col-span-5 space-y-2 max-h-[540px] overflow-y-auto pr-1">
-              {queue.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => setSelectedQueueId(item.id)}
-                  className={`rounded-lg border p-3 cursor-pointer transition-colors ${
-                    selectedItem?.id === item.id
-                      ? 'border-blue-500 bg-[var(--surface-elevated)]'
-                      : 'border-[var(--border)] bg-[var(--bg)] hover:border-blue-500/40'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-semibold text-xs truncate">{item.job.title}</div>
-                      <div className="text-[11px] text-[var(--muted)] truncate">
-                        {item.job.company} • {item.job.source_name}
-                      </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/15 text-blue-300 shrink-0">
-                      {item.job.match_score}%
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--muted)]">
-                    <span className="uppercase">{item.status.replace('_', ' ')}</span>
-                    {item.job.contact_email && (
-                      <span className="text-emerald-300 inline-flex items-center gap-1 truncate max-w-[180px]">
-                        <Mail className="w-3 h-3 shrink-0" /> {item.job.contact_email}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Selected Job Action Workspace */}
-            {selectedItem && (
-              <div className="lg:col-span-7 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-bold">{selectedItem.job.title}</h3>
-                    <p className="text-xs text-[var(--muted)]">
-                      {selectedItem.job.company} • {selectedItem.job.location || 'Remote'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <a
-                      href={selectedItem.job.apply_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs hover:bg-[var(--surface-elevated)]"
-                    >
-                      Open Job <ExternalLink className="w-3 h-3" />
-                    </a>
-                    <button
-                      type="button"
-                      disabled={busyId === selectedItem.id}
-                      onClick={() => updateAppStatus(selectedItem.id, 'applied')}
-                      className="inline-flex items-center gap-1 rounded-md bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 px-2.5 py-1.5 text-xs font-medium cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Mark Applied
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === selectedItem.id}
-                      onClick={() => updateAppStatus(selectedItem.id, 'skipped')}
-                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] text-[var(--muted)] hover:text-red-300 px-2.5 py-1.5 text-xs cursor-pointer"
-                    >
-                      <SkipForward className="w-3.5 h-3.5" /> Skip
-                    </button>
-                  </div>
-                </div>
-
-                {selectedItem.job.match_summary?.rationale && (
-                  <div className="rounded-md bg-[var(--surface)] border border-[var(--border)] p-3 text-xs space-y-2">
-                    <div className="text-[var(--muted)]">{selectedItem.job.match_summary.rationale}</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(selectedItem.job.match_summary.matchedSkills ?? []).slice(0, 6).map((s) => (
-                        <span
-                          key={s}
-                          className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 text-[10px]"
-                        >
-                          ✓ {s}
-                        </span>
-                      ))}
-                      {(selectedItem.job.match_summary.missingSkills ?? []).slice(0, 4).map((s) => (
-                        <span
-                          key={s}
-                          className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 text-[10px]"
-                        >
-                          Gap: {s}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-blue-300">
-                      Initial Apply Email Draft (Manual Send Only)
-                    </span>
-                    <button
-                      type="button"
-                      disabled={busyId === selectedItem.id}
-                      onClick={() => handleDraftAction('regenerate')}
-                      className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline cursor-pointer"
-                    >
-                      <RefreshCw className="w-3 h-3" /> {initialEmail ? 'Regenerate' : 'Generate Draft'}
-                    </button>
-                  </div>
-
-                  <input
-                    type="email"
-                    value={editRecipient}
-                    onChange={(e) => setEditRecipient(e.target.value)}
-                    placeholder="Recipient hiring email (e.g. hiring@company.com)"
-                    className="w-full rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-1.5 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={editSubject}
-                    onChange={(e) => setEditSubject(e.target.value)}
-                    placeholder="Email subject"
-                    className="w-full rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                  />
-                  <textarea
-                    rows={6}
-                    value={editBody}
-                    onChange={(e) => setEditBody(e.target.value)}
-                    placeholder="Draft email body..."
-                    className="w-full rounded-md bg-[var(--surface)] border border-[var(--border)] px-2.5 py-2 text-xs leading-relaxed"
-                  />
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleDraftAction('copy')}
-                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--surface-elevated)] cursor-pointer"
-                    >
-                      <ClipboardCopy className="w-3.5 h-3.5" /> Copy
-                    </button>
-                    {initialEmail && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={busyId === selectedItem.id}
-                          onClick={() => handleDraftAction('save')}
-                          className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--surface-elevated)] cursor-pointer"
-                        >
-                          Save Edit
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId === selectedItem.id}
-                          onClick={() => handleDraftAction('send_now')}
-                          className="inline-flex items-center gap-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 text-xs font-semibold cursor-pointer"
-                        >
-                          <Send className="w-3.5 h-3.5" /> Send Manually Now
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* Somewhat Search Duplicate Checker */}
-      <SomewhatSearchBar />
-
-      {/* Run History Table (Click any run to inspect its sources & logs in the Console above) */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold">Run History (Click a row to inspect logs)</h2>
-        </div>
-
-        {runs.length === 0 ? (
-          <p className="text-xs text-[var(--muted)]">No runs recorded yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-[var(--border)] text-[var(--muted)]">
-                  <th className="py-2 pr-4">Started</th>
-                  <th className="py-2 pr-4">Trigger</th>
-                  <th className="py-2 pr-4">Status</th>
-                  <th className="py-2 pr-4">Stage / Result</th>
-                  <th className="py-2 pr-4">Found</th>
-                  <th className="py-2 pr-4">Matched</th>
-                  <th className="py-2 pr-4">Drafted</th>
-                  <th className="py-2">Employees Reached</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run) => (
-                  <tr
-                    key={run.id}
-                    onClick={() => {
-                      setInspectedRunId(run.id);
-                      setShowLogs(true);
-                    }}
-                    className={`border-b border-[var(--border)]/50 cursor-pointer hover:bg-[var(--surface-elevated)] ${
-                      inspectedRun?.id === run.id ? 'bg-[var(--surface-elevated)]/70' : ''
-                    }`}
-                  >
-                    <td className="py-2.5 pr-4 whitespace-nowrap">
-                      {new Date(run.started_at).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 pr-4 uppercase">{run.trigger_type}</td>
-                    <td className="py-2.5 pr-4">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] uppercase ${
-                          run.status === 'completed'
-                            ? 'bg-emerald-500/15 text-emerald-300'
-                            : run.status === 'failed'
-                              ? 'bg-red-500/15 text-red-300'
-                              : 'bg-blue-500/15 text-blue-300'
-                        }`}
-                      >
-                        {run.status}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-4 text-[var(--muted)] max-w-[260px] truncate">
-                      {run.log_summary?.message ?? run.log_summary?.stage ?? '—'}
-                    </td>
-                    <td className="py-2.5 pr-4">{run.jobs_found}</td>
-                    <td className="py-2.5 pr-4">{run.jobs_matched}</td>
-                    <td className="py-2.5 pr-4">{run.emails_drafted}</td>
-                    <td className="py-2.5">{run.employees_reached}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
